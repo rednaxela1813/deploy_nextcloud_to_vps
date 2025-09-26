@@ -38,12 +38,8 @@ jobs:
             -e "ssh -p ${{ secrets.SSH_PORT }}" \
             ./  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
-      - name: Build & (re)start services on VPS
+            - name: Build & (re)start services on VPS
         run: |
-          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" bash -lc "
-            set -euo pipefail
-            cd '${{ secrets.DEPLOY_PATH }}'
-            docker compose pull || true
-            docker compose up -d --build
-            docker system prune -f || true
-          "
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}' bash -lc 'set -euo pipefail; cd \"\$DEPLOY_PATH\"; docker compose pull || true; docker compose up -d --build; docker system prune -f || true'"
+
