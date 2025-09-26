@@ -28,17 +28,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rsync
 
-      - name: Sync project to server via rsync
+      # Синхроним ТОЛЬКО папку project/ -> DEPLOY_PATH
+      - name: Sync project/ to server via rsync
         run: |
           rsync -az --delete \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.env' \
             --exclude='README.md' \
-            -e "ssh -o StrictHostKeyChecking=yes -p ${{ secrets.SSH_PORT }}" \
-            ./  "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            ./project/  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
       - name: Build & (re)start services on VPS
         run: |
-          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-            "DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}' bash -lc 'set -euo pipefail; cd \"\$DEPLOY_PATH\"; docker compose pull || true; docker compose up -d --build; docker system prune -f || true'"
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "
+            set -euo pipefail
+            cd '${{ secrets.DEPLOY_PATH }}' || { echo 'DEPLOY_PATH not found'; exit 1; }
+            echo 'PWD:'; pwd
+            echo 'Listing:'; ls -la
+
+            # Определяем compose-файл
+            if [ -f docker-compose.yml ]; then
+              COMPOSE_FILE='docker-compose.yml'
+            elif [ -f compose.yml ]; then
+              COMPOSE_FILE='compose.yml'
+            else
+              echo 'No compose file (docker-compose.yml/compose.yml) found in $PWD'; exit 1
+            fi
+
+            docker compose -f \"$COMPOSE_FILE\" pull || true
+            docker compose -f \"$COMPOSE_FILE\" up -d --build
+            docker system prune -f || true
+          "
