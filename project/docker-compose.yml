@@ -69,7 +69,7 @@ services:
       OVERWRITECLIURL: ${PUBLIC_ORIGIN:-http://localhost:8080}
       OVERWRITEPROTOCOL: ${PUBLIC_SCHEME:-http}
       # Обычно OVERWRITEHOST не нужен, т.к. прокидываем исходный Host
-      NEXTCLOUD_TRUSTED_DOMAINS: "${PUBLIC_HOST} localhost 127.0.0.1 nextcloud"
+      NEXTCLOUD_TRUSTED_DOMAINS: "${PUBLIC_HOST}"
     volumes:
       - nextcloud_html:/var/www/html
       - nextcloud_data:/var/www/html/data
