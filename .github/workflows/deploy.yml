@@ -36,7 +36,8 @@ jobs:
             --exclude='.env' \
             --exclude='README.md' \
             -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            ./project/  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+
 
       - name: Build & (re)start services on VPS
         shell: bash
