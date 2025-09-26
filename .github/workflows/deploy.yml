@@ -63,4 +63,4 @@ jobs:
           docker compose -f "$CF" pull || true
           docker compose -f "$CF" up -d --build
           docker system prune -f || true
-EOSH
+
