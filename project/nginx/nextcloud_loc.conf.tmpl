@@ -1,4 +1,4 @@
-# Переменная SERVER_NAME приходит из docker-compose.
+# Переменная SERVER_NAME приходит из docker-compose (можно список через пробел).
 # Пример: SERVER_NAME="documents.deilmann.sk localhost 127.0.0.1 nextcloud"
 
 client_max_body_size 0;
@@ -11,54 +11,16 @@ map $http_upgrade $connection_upgrade {
   ''      close;
 }
 
-# -------------------------
-# :80 — только ACME и редирект на HTTPS
-# -------------------------
 server {
     listen 80;
     listen [::]:80;
     server_name ${SERVER_NAME};
 
-    # ACME http-01 (certbot)
+    # ACME
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
         try_files $uri =404;
     }
-
-    # Проброс well-known для nextcloud до установки сертификата
-    location = /.well-known/carddav  { return 301 /remote.php/dav; }
-    location = /.well-known/caldav   { return 301 /remote.php/dav; }
-    location = /.well-known/webfinger { return 301 /index.php/.well-known/webfinger; }
-    location = /.well-known/nodeinfo  { return 301 /index.php/.well-known/nodeinfo; }
-
-    # Всё остальное — 301 на HTTPS
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-# -------------------------
-# :443 — основной сервер
-# -------------------------
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name ${SERVER_NAME};
-
-    ssl_certificate     /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
-
-    # Базовые SSL настройки (минимально-достаточные)
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:MozSSL:10m;
-    ssl_session_tickets off;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
-
-    # OCSP stapling (не критично, но полезно при наличии chain)
-    ssl_stapling on;
-    ssl_stapling_verify on;
 
     # Well-known редиректы Nextcloud
     location = /.well-known/carddav  { return 301 /remote.php/dav; }
@@ -74,7 +36,7 @@ server {
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 
-        # DAV-специфика
+        # DAV-специфика (иначе у некоторых клиентов бывают 405/409)
         proxy_set_header Destination       $http_destination;
         proxy_set_header Overwrite         $http_overwrite;
         proxy_set_header Depth             $http_depth;
@@ -83,10 +45,12 @@ server {
         proxy_set_header If-None-Match     $http_if_none_match;
         proxy_set_header If-Match          $http_if_match;
 
+        # таймауты под большие аплоады
         proxy_connect_timeout 60s;
         proxy_send_timeout    600s;
         proxy_read_timeout    600s;
 
+        # для chunked uploads
         chunked_transfer_encoding on;
 
         proxy_pass http://nextcloud:80;
@@ -94,7 +58,7 @@ server {
 
     # Остальной трафик
     location / {
-        proxy_set_header Host              $http_host;     # сохраняем :порт
+        proxy_set_header Host              $http_host;     # сохраняем :8080 при локальном доступе
         proxy_set_header X-Forwarded-Host  $http_host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Real-IP         $remote_addr;
@@ -111,7 +75,7 @@ server {
     location ~ ^/(?:build|tests|config|lib|3rdparty|templates|data)/ { return 404; }
     location ~ ^/(?:\.|autotest|occ|issue|indie|db_|console)         { return 404; }
 
-    # Немного кэша для статики
+    # Немного кэша для статики (если вдруг отдастся фронтом)
     location ~* \.(?:css|js|woff2?|svg|gif|ico|png|jpe?g)$ {
         expires 7d;
         access_log off;
