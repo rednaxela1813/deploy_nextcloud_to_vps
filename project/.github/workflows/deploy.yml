@@ -1,61 +1,46 @@
-name: Deploy to documents.deilmann.sk
+name: Deploy to VPS
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-concurrency:
-  group: deploy-prod
-  cancel-in-progress: true
-
-  
-
-env:
-  HOST: ${{ secrets.SSH_HOST || secrets.VPS_HOST }}
-  PORT: ${{ secrets.SSH_PORT || secrets.VPS_PORT || '22' }}
-  USER: ${{ secrets.SSH_USER || secrets.VPS_USER || 'deploy' }}
-  PATH_REMOTE: ${{ secrets.DEPLOY_PATH || secrets.VPS_PATH || '/opt/nextcloud' }}
-  # приватный ключ обязателен в одном из этих секретов:
-  KEY: ${{ secrets.SSH_KEY || secrets.VPS_SSH_KEY }}
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Check required secrets
-        run: |
-          test -n "${{ env.HOST }}" || { echo "Missing SSH_HOST (or VPS_HOST)"; exit 1; }
-          test -n "${{ env.KEY }}"  || { echo "Missing SSH_KEY (or VPS_SSH_KEY)"; exit 1; }
 
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare SSH
+      - name: Start ssh-agent with repo secret SSH_KEY
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add host to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ env.PORT }}" "${{ env.HOST }}" >> ~/.ssh/known_hosts
-          printf "%s" "${{ env.KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Rsync repo to server
+      - name: Ensure remote path exists
+        run: |
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "mkdir -p '${{ secrets.DEPLOY_PATH }}'"
+
+      - name: Rsync repository to VPS
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_ed25519 -p ${{ env.PORT }}" \
             --exclude '.git' \
             --exclude '.github' \
-            ./  "${{ env.USER }}@${{ env.HOST }}:${{ env.PATH_REMOTE }}/"
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
 
-      - name: Build & up on server
+      - name: Compose up (pull/build + up -d)
         run: |
-          ssh -i ~/.ssh/id_ed25519 -p "${{ env.PORT }}" \
-            "${{ env.USER }}@${{ env.HOST }}" \
-            bash -lc '
-              set -euo pipefail
-              cd "${{ env.PATH_REMOTE }}"
-              [ -f .env ] || { echo ".env is missing in $PWD"; exit 1; }
-              docker compose pull || true
-              docker compose build --pull
-              docker compose up -d
-              docker image prune -f || true
-            '
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '${{ secrets.DEPLOY_PATH }}' && docker compose pull && docker compose up -d --build && docker image prune -f"
+
+      - name: Show running services
+        run: |
+          ssh -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "cd '${{ secrets.DEPLOY_PATH }}' && docker compose ps && docker ps --format 'table {{.Names}}\t{{.Status}}'"
