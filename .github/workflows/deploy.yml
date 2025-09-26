@@ -1,0 +1,51 @@
+name: Deploy Nextcloud to VPS
+
+on:
+  push:
+    branches: [ "main" ]   # деплой при пуше в main
+  workflow_dispatch:        # и ручной запуск из Actions
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Load SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Add host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      # Копируем файлы на сервер (без .git, .github, .env и пр.)
+      - name: Rsync project to server
+        uses: burnett01/rsync-deployments@6.0
+        with:
+          switches: -az --delete --exclude='.git' --exclude='.github' --exclude='.env' --exclude='README.md'
+          path: .
+          remote_path: ${{ secrets.DEPLOY_PATH }}
+          remote_host: ${{ secrets.SSH_HOST }}
+          remote_port: ${{ secrets.SSH_PORT }}
+          remote_user: ${{ secrets.SSH_USER }}
+
+      # Перезапускаем стек
+      - name: Docker Compose up
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker compose pull || true
+            docker compose build --pull
+            docker compose up -d --remove-orphans
+            docker system prune -f
