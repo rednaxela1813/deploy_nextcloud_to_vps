@@ -120,11 +120,7 @@ services:
     environment:
       - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
       - SERVER_NAME=${PUBLIC_HOST:?set PUBLIC_HOST in .env}
-    command: >
-      /bin/sh -lc "
-      rm -f /etc/nginx/conf.d/default.conf &&
-      envsubst '\$SERVER_NAME' < /etc/nginx/templates/nextcloud.conf.template > /etc/nginx/conf.d/nextcloud.conf &&
-      nginx -g 'daemon off;'"
+    
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost/ | grep -qi nextcloud || exit 1"]
       interval: 10s
