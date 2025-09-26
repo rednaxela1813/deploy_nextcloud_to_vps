@@ -1,0 +1,13 @@
+services:
+  elasticsearch:
+    # не публикуем порт наружу
+    ports: []
+
+  nextcloud:
+    ports:
+      - "127.0.0.1:8080:80"   # только для nginx на локалхосте
+
+  nginx:
+    # certbot том прокидывается уже в основной; тут можно добавить auto-reload hook и т.п.
+    environment:
+      - SERVER_NAME=${NEXTCLOUD_OVERWRITE_HOST}
