@@ -36,25 +36,31 @@ jobs:
             --exclude='.env' \
             --exclude='README.md' \
             -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            ./  "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
 
       - name: Build & (re)start services on VPS
+        shell: bash
         run: |
           ssh -p "${{ secrets.SSH_PORT }}" -o StrictHostKeyChecking=yes \
-             "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" 'bash --noprofile --norc -euo pipefail' <<EOF
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}" 'bash -s' <<'EOSH'
+          set -euo pipefail
           set -x
-          cd "${{ secrets.DEPLOY_PATH }}"
+
+          cd "$DEPLOY_PATH"
           ls -la
 
+          # Определяем compose-файл
           if [ -f docker-compose.yml ]; then
-            COMPOSE_FILE=docker-compose.yml
+            CF=docker-compose.yml
           elif [ -f docker-compose.prod.yml ]; then
-            COMPOSE_FILE=docker-compose.prod.yml
+            CF=docker-compose.prod.yml
           else
-            echo "No docker compose file found in \$(pwd)"; exit 1
+            echo "No docker compose file found in $(pwd)"
+            exit 1
           fi
 
-          docker compose -f "\$COMPOSE_FILE" pull || true
-          docker compose -f "\$COMPOSE_FILE" up -d --build
+          docker compose -f "$CF" pull || true
+          docker compose -f "$CF" up -d --build
           docker system prune -f || true
-          EOF
+EOSH
