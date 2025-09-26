@@ -28,8 +28,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rsync
 
-      # Синхроним ТОЛЬКО папку project/ -> DEPLOY_PATH
-      - name: Sync project/ to server via rsync
+      - name: Sync project to server via rsync
         run: |
           rsync -az --delete \
             --exclude='.git' \
@@ -37,34 +36,25 @@ jobs:
             --exclude='.env' \
             --exclude='README.md' \
             -e "ssh -p ${{ secrets.SSH_PORT }}" \
-            ./project/  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+            ./  "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
 
       - name: Build & (re)start services on VPS
         run: |
-          REMOTE_DIR="${{ secrets.DEPLOY_PATH }}"
-          SSH_HOST="${{ secrets.SSH_HOST }}"
-          SSH_PORT="${{ secrets.SSH_PORT }}"
-          SSH_USER="${{ secrets.SSH_USER }}"
+          ssh -p "${{ secrets.SSH_PORT }}" -o StrictHostKeyChecking=yes \
+             "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" 'bash --noprofile --norc -euo pipefail' <<EOF
+          set -x
+          cd "${{ secrets.DEPLOY_PATH }}"
+          ls -la
 
-          # Выполняем без загрузки профилей/rc и без TTY, с трассировкой
-          ssh -p "$SSH_PORT" -o StrictHostKeyChecking=yes -T "$SSH_USER@$SSH_HOST" \
-            "bash --noprofile --norc -euo pipefail -c '
-              set -x
-              cd \"$REMOTE_DIR\" || { echo \"No such dir: $REMOTE_DIR\"; exit 1; }
-              ls -la
+          if [ -f docker-compose.yml ]; then
+            COMPOSE_FILE=docker-compose.yml
+          elif [ -f docker-compose.prod.yml ]; then
+            COMPOSE_FILE=docker-compose.prod.yml
+          else
+            echo "No docker compose file found in \$(pwd)"; exit 1
+          fi
 
-              # Явно выбираем compose-файл
-              if [ -f docker-compose.yml ]; then
-                CF=docker-compose.yml
-              elif [ -f compose.yml ]; then
-                CF=compose.yml
-              elif [ -f docker-compose.prod.yml ]; then
-                CF=docker-compose.prod.yml
-              else
-                echo \"No compose file found\"; exit 1
-              fi
-
-              docker compose -f \"$CF\" pull || true
-              docker compose -f \"$CF\" up -d --build
-              docker system prune -f || true
-            '"
+          docker compose -f "\$COMPOSE_FILE" pull || true
+          docker compose -f "\$COMPOSE_FILE" up -d --build
+          docker system prune -f || true
+EOF
