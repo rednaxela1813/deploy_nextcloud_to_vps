@@ -1,9 +1,9 @@
-name: Deploy Nextcloud to VPS
+name: Deploy to VPS
 
 on:
   push:
-    branches: [ "main" ]   # деплой при пуше в main
-  workflow_dispatch:        # и ручной запуск из Actions
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -13,40 +13,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Load SSH key
+      - name: Start SSH agent with our key
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Add host to known_hosts
+      - name: Trust VPS host key
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p "${{ secrets.SSH_PORT }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      # Копируем файлы на сервер (без .git, .github, .env и пр.)
-      - name: Rsync project to server
-        uses: burnett01/rsync-deployments@7.0
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
 
-        with:
-          switches: -az --delete --exclude='.git' --exclude='.github' --exclude='.env' --exclude='README.md'
-          path: .
-          remote_path: ${{ secrets.DEPLOY_PATH }}
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: ${{ secrets.SSH_PORT }}
-          remote_user: ${{ secrets.SSH_USER }}
+      - name: Sync project to server via rsync
+        run: |
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='README.md' \
+            -e "ssh -p ${{ secrets.SSH_PORT }}" \
+            ./  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
-      # Перезапускаем стек
-      - name: Docker Compose up
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            docker compose pull || true
-            docker compose build --pull
-            docker compose up -d --remove-orphans
-            docker system prune -f
+      - name: Build & (re)start services on VPS
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -p "${{ secrets.SSH_PORT }}" ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} <<'SSH'
+          set -euo pipefail
+          cd "${DEPLOY_PATH}"
+          docker compose pull || true
+          docker compose up -d --build
+          docker system prune -f || true
+          SSH
