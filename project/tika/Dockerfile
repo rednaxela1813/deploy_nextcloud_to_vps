@@ -1,5 +1,5 @@
 # Базовый Tika Server с уже настроенным OCR’ом внутри образа
-FROM logicalspark/docker-tikaserver:2.9.2
+FROM apache/tika:latest-full
 
 USER root
 # ставим языковые пакеты Tesseract — английский и японский
