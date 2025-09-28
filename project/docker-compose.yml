@@ -47,9 +47,9 @@ services:
     build: ./nextcloud
     restart: unless-stopped
     depends_on:
-      db: { condition: service_healthy }
-      valkey: { condition: service_started }
-      elasticsearch: { condition: service_healthy }
+      db:           { condition: service_healthy }
+      valkey:       { condition: service_started }
+      elasticsearch:{ condition: service_healthy }
     environment:
       # DB
       POSTGRES_HOST: db
@@ -57,28 +57,33 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nextcloud}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in env}
 
-      # Admin
+      # Admin (первичный автопровижен)
       NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER:-admin}
       NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD:?set in env}
 
-      # Redis
+      # Redis/Valkey
       REDIS_HOST: valkey
       REDIS_HOST_PORT: 6379
 
       # Публичные параметры (универсально dev/prod)
-      OVERWRITECLIURL: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      OVERWRITEPROTOCOL: ${PUBLIC_SCHEME:-http}
-      # Обычно OVERWRITEHOST не нужен, т.к. прокидываем исходный Host
-      NEXTCLOUD_TRUSTED_DOMAINS: "${PUBLIC_HOST}"
+      # Эти имена соответствуют переменным, которые мы далее применим в nginx и в init-скрипте
+      PUBLIC_HOST:     ${PUBLIC_HOST:-localhost}
+      PUBLIC_SCHEME:   ${PUBLIC_SCHEME:-http}
+      PUBLIC_ORIGIN:   ${PUBLIC_ORIGIN:-http://localhost:8080}
+
+      # Trusted domains для первичной установки (Nextcloud парсит как space-separated)
+      NEXTCLOUD_TRUSTED_DOMAINS: "${PUBLIC_HOST} localhost 127.0.0.1"
     volumes:
       - nextcloud_html:/var/www/html
       - nextcloud_data:/var/www/html/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost/status.php >/dev/null || exit 1"]
+      # Проверяем реальный статус PHP-приложения (обходит редиректы nginx)
+      test: ["CMD-SHELL", "curl -fsS http://localhost/status.php | grep -q 'installed' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 60
 
+  # Одноразовый инициализатор (в т.ч. проставим backgroundjobs_mode=cron и overwrite*)
   nc-init:
     build: ./nextcloud
     depends_on:
@@ -92,11 +97,12 @@ services:
     command: "/nc-init.sh"
     restart: "no"
 
-  cron:
+  # Устойчивый cron-сервис (каждые ~5 минут /cron.sh запускает фоновые задания)
+  nextcloud-cron:
     build: ./nextcloud
     restart: unless-stopped
     depends_on:
-      - nextcloud
+      nextcloud: { condition: service_started }
     user: "33:33"
     working_dir: /var/www/html
     entrypoint: ["/bin/sh","-lc","/cron.sh"]
@@ -107,26 +113,26 @@ services:
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
-    
+    depends_on:
+      nextcloud: { condition: service_started }
     ports:
       - "80:80"
       - "443:443"
-    depends_on:
-      - nextcloud
     volumes:
       - nextcloud_html:/var/www/html:ro
       - ./nginx/nextcloud.conf.tmpl:/etc/nginx/templates/nextcloud.conf.template:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     environment:
       - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
-      - SERVER_NAME=${PUBLIC_HOST:?set PUBLIC_HOST in .env}
-    
+      # Для server_name: можно перечислить несколько (домены/локал), но для сертификата
+      # пусть в prod-оверрайде будет первичный домен (см. prod файл ниже)
+      - SERVER_NAME=${PUBLIC_HOST:?set PUBLIC_HOST in .env} localhost 127.0.0.1 nextcloud
     healthcheck:
+      # Проверяем, что прокси реально отдаёт логин-страницу (без HTTPS-серта это будет 301 → ok)
       test: ["CMD-SHELL", "wget -qO- http://localhost/ | grep -qi nextcloud || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-    
 
 volumes:
   db_data:
