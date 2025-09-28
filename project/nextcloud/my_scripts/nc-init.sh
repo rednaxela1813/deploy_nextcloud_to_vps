@@ -7,6 +7,37 @@ echo "[nc-init] installed"
 
 cd /var/www/html
 
+# --- install/enable fulltextsearch_tika (fallback если нет в маркете) ---
+install_tika_app() {
+  if php occ app:install fulltextsearch_tika 2>/dev/null; then
+    echo "[nc-init] fulltextsearch_tika installed from appstore"
+  else
+    echo "[nc-init] appstore install failed, falling back to GitHub"
+    cd /var/www/html
+    mkdir -p custom_apps
+    TMP=/tmp/fulltextsearch_tika.tgz
+    for URL in \
+      "https://github.com/nextcloud/fulltextsearch_tika/releases/download/v31.0.0/fulltextsearch_tika-v31.0.0.tar.gz" \
+      "https://github.com/nextcloud/fulltextsearch_tika/archive/refs/heads/main.tar.gz"
+    do
+      if curl -fsSL -o "$TMP" "$URL"; then
+        break
+      fi
+    done
+    [ -s "$TMP" ] || { echo "[nc-init] cannot download Tika app"; return 1; }
+    tar -xzf "$TMP" -C custom_apps
+    if [ ! -d custom_apps/fulltextsearch_tika ]; then
+      mv custom_apps/fulltextsearch_tika* custom_apps/fulltextsearch_tika 2>/dev/null || true
+    fi
+  fi
+  php occ app:enable fulltextsearch_tika || true
+}
+
+install_tika_app
+
+
+
+
 # Базовые приложения
 php occ app:install groupfolders                   || php occ app:enable groupfolders                   || true
 php occ app:install fulltextsearch                 || php occ app:enable fulltextsearch                 || true
