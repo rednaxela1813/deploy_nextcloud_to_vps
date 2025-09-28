@@ -133,15 +133,7 @@ services:
       timeout: 5s
       retries: 10
 
-  tika:
-    build: ./tika
-    restart: unless-stopped
-    # порт наружу не публикуем: доступен только внутри сети compose
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9998/tika >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
+  
 
 
 volumes:
