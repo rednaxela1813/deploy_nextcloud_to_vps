@@ -1,13 +1,12 @@
 services:
   elasticsearch:
-    # не публикуем порт наружу
-    ports: []
+    ports: []   # не публикуем наружу
 
   nextcloud:
     ports:
-      - "127.0.0.1:8080:80"   # только для nginx на локалхосте
+      - "127.0.0.1:8080:80"   # только для nginx на той же машине
 
   nginx:
-    # certbot том прокидывается уже в основной; тут можно добавить auto-reload hook и т.п.
     environment:
-      - SERVER_NAME=${NEXTCLOUD_OVERWRITE_HOST}
+      # один главный домен (совпадает с каталогом LE: /etc/letsencrypt/live/<домен>/...)
+      - SERVER_NAME=${NEXTCLOUD_OVERWRITE_HOST:?set NEXTCLOUD_OVERWRITE_HOST in .env}
