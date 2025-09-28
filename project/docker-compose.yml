@@ -102,9 +102,9 @@ services:
     restart: unless-stopped
     depends_on:
       - nextcloud
-    user: "33:33"
+    
     working_dir: /var/www/html
-    entrypoint: ["/bin/sh","-lc","/cron.sh"]
+    entrypoint: /cron.sh
     volumes:
       - nextcloud_html:/var/www/html
       - nextcloud_data:/var/www/html/data
