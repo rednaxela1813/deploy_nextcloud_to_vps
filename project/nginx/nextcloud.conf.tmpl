@@ -26,8 +26,8 @@ server {
     }
 
     # Проброс well-known для nextcloud до установки сертификата
-    location = /.well-known/carddav  { return 301 /remote.php/dav; }
-    location = /.well-known/caldav   { return 301 /remote.php/dav; }
+    location = /.well-known/carddav   { return 301 /remote.php/dav; }
+    location = /.well-known/caldav    { return 301 /remote.php/dav; }
     location = /.well-known/webfinger { return 301 /index.php/.well-known/webfinger; }
     location = /.well-known/nodeinfo  { return 301 /index.php/.well-known/nodeinfo; }
 
@@ -45,10 +45,11 @@ server {
     listen [::]:443 ssl http2;
     server_name ${SERVER_NAME};
 
+    # ВАЖНО: если SERVER_NAME содержит несколько имён, путь ниже должен указывать
+    # на КОНКРЕТНЫЙ каталог домена, под которым выпускался сертификат (обычно первый).
     ssl_certificate     /etc/letsencrypt/live/${SERVER_NAME}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${SERVER_NAME}/privkey.pem;
 
-    # Базовые SSL настройки (минимально-достаточные)
     ssl_session_timeout 1d;
     ssl_session_cache shared:MozSSL:10m;
     ssl_session_tickets off;
@@ -56,25 +57,23 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers off;
 
-    # OCSP stapling (не критично, но полезно при наличии chain)
     ssl_stapling on;
     ssl_stapling_verify on;
 
     # Well-known редиректы Nextcloud
-    location = /.well-known/carddav  { return 301 /remote.php/dav; }
-    location = /.well-known/caldav   { return 301 /remote.php/dav; }
+    location = /.well-known/carddav   { return 301 /remote.php/dav; }
+    location = /.well-known/caldav    { return 301 /remote.php/dav; }
     location = /.well-known/webfinger { return 301 /index.php/.well-known/webfinger; }
     location = /.well-known/nodeinfo  { return 301 /index.php/.well-known/nodeinfo; }
 
-    # ВАЖНО: отдельный блок для WebDAV — не буферизуем и пробрасываем специфические заголовки
+    # WebDAV / CalDAV / CardDAV
     location ~ ^/remote\.php/(webdav|dav|dav/|caldav|carddav) {
-        proxy_set_header Host              $http_host;     # сохраняем порт в редиректах
+        proxy_set_header Host              $http_host;
         proxy_set_header X-Forwarded-Host  $http_host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 
-        # DAV-специфика
         proxy_set_header Destination       $http_destination;
         proxy_set_header Overwrite         $http_overwrite;
         proxy_set_header Depth             $http_depth;
@@ -92,14 +91,14 @@ server {
         proxy_pass http://nextcloud:80;
     }
 
-    # Остальной трафик
+    # Всё остальное — на Nextcloud
     location / {
-        proxy_set_header Host              $http_host;     # сохраняем :порт
-        proxy_set_header X-Forwarded-Host  $http_host;
-        proxy_set_header X-Forwarded-Ssl    on;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header Host               $http_host;   # сохраняем :порт
+        proxy_set_header X-Forwarded-Host   $http_host;
+        proxy_set_header X-Forwarded-Ssl     on;
+        proxy_set_header X-Forwarded-Proto  $scheme;
+        proxy_set_header X-Real-IP          $remote_addr;
+        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
 
         proxy_connect_timeout 60s;
         proxy_send_timeout    600s;
@@ -112,9 +111,21 @@ server {
     location ~ ^/(?:build|tests|config|lib|3rdparty|templates|data)/ { return 404; }
     location ~ ^/(?:\.|autotest|occ|issue|indie|db_|console)         { return 404; }
 
-    # Немного кэша для статики
+    # === ИСПРАВЛЕНИЕ: статика тоже проксируется в Nextcloud ===
     location ~* \.(?:css|js|woff2?|svg|gif|ico|png|jpe?g)$ {
         expires 7d;
         access_log off;
+
+        proxy_set_header Host               $http_host;
+        proxy_set_header X-Forwarded-Host   $http_host;
+        proxy_set_header X-Forwarded-Proto  $scheme;
+        proxy_set_header X-Real-IP          $remote_addr;
+        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    600s;
+        proxy_read_timeout    600s;
+
+        proxy_pass http://nextcloud:80;
     }
 }
