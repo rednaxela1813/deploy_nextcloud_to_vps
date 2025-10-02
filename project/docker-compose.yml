@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:16
@@ -34,7 +36,9 @@ services:
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=${ES_JAVA_OPTS:--Xms512m -Xmx512m}
     ulimits:
-      memlock: { soft: -1, hard: -1 }
+      memlock:
+        soft: -1
+        hard: -1
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -70,7 +74,7 @@ services:
       PUBLIC_SCHEME: ${PUBLIC_SCHEME:-https}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-https://localhost}
 
-      # Trusted domains space-separated
+      # Trusted domains (space-separated)
       NEXTCLOUD_TRUSTED_DOMAINS: "${NEXTCLOUD_OVERWRITE_HOST:-localhost} localhost 127.0.0.1"
     volumes:
       - nextcloud_html:/var/www/html
@@ -82,7 +86,7 @@ services:
       timeout: 5s
       retries: 60
 
-  # одноразовая инициализация (overwrite*, cron, FTS-аппы и т.д.)
+  # Одноразовая инициализация (overwrite*, backgroundjobs_mode=cron, FTS-аппы и т.д.)
   nc-init:
     build: ./nextcloud
     depends_on:
@@ -96,18 +100,33 @@ services:
     command: "/nc-init.sh"
     restart: "no"
 
-  # крон раз в ~5 минут
-  cron:
+  # Крон: каждые 5 минут выполняем cron.php и «живую» индексацию fulltextsearch
+  nc-cron:
     build: ./nextcloud
+    container_name: nextcloud-cron
     restart: unless-stopped
     depends_on:
       - nextcloud
-    
+    user: "33:33"          # www-data
     working_dir: /var/www/html
-    entrypoint: /cron.sh
+    entrypoint: ["/bin/sh","-lc"]
+    command: >
+      set -e;
+      mkdir -p /var/spool/cron/crontabs;
+      cat > /var/spool/cron/crontabs/www-data <<'EOF'
+            */5 * * * * PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin php -d memory_limit=512M -f /var/www/html/cron.php >>/dev/stdout 2>&1
+                */5 * * * * PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin php -d memory_limit=768M /var/www/html/occ fulltextsearch:live --no-ansi --no-interaction >>/dev/stdout 2>&1
+      EOF
+      chmod 600 /var/spool/cron/crontabs/www-data;
+      exec busybox crond -f -l 0
     volumes:
       - nextcloud_html:/var/www/html
       - nextcloud_data:/var/www/html/data
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -v grep | grep -q 'busybox crond'"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
 
   nginx:
     image: nginx:1.27-alpine
@@ -126,15 +145,11 @@ services:
       - SERVER_NAME=${NEXTCLOUD_OVERWRITE_HOST}        # главный домен (CN)
       - SERVER_ALIASES=localhost 127.0.0.1 nextcloud   # любые алиасы
       - CERT_DOMAIN=${CERT_DOMAIN}                     # каталог в /etc/letsencrypt/live/
-
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost/ | grep -qi nextcloud || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
-
-  
-
 
 volumes:
   db_data:
